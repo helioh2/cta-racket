@@ -1,0 +1,41 @@
+#lang racket
+
+;; CONSTANTES:
+
+(define COUNT-STREETS 20)
+(define TURN-RATE 0.1)
+(define BLOCK-LENGTH 5)
+
+(define SENSES (list '(0 . 1) '(0 . -1) '(1 . 0) '(-1 . 0)))
+(define SENSES_NAMES (list "RIGHT" "LEFT" "DOWN" "UP"))
+
+(define DIRECTIONS (list '(0 . 1) '(1 . 0)))
+(define DIRECTIONS_NAMES ("HORIZONTAL", "VERTICAL"))
+
+(define DIR_HOR 0)
+(define DIR_VER 1)
+
+(define RED 0)
+(define GREEN 1)
+(define YELLOW 2)
+
+(define SEP "|")
+(define LOGNAME "simulator.txt")
+
+
+;; DEFINIÇÃO DE DADOS:
+
+(define-struct block (id street lane previous-intersection next-intersection))
+;; Block é (make-block '(Integer+ . Integer+) List Intersection Intersection
+;examples:
+(define BLOCK1 ('(0 . 0) (list #f CAR1 #f #f #f) #f INT1 ))
+
+
+(define-struct car (id block total-time in-intersection?))
+;; Car é (make-car Integer+ Block Integer+ Boolean)
+;exemples:
+(define CAR1 (make-car 1 BLOCK1 2 #f))
+
+
+
+
