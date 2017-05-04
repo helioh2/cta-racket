@@ -33,6 +33,16 @@
 (define (car-id-generator)
   (in-range +inf.0))
 
+(define (cria-pares item lista)
+       (map (lambda (item2) (list item item2)) lista))
+
+(define (produto-cartesiano list1 list2)
+  (cond [(empty? list1) empty]
+        [else
+         (append (cria-pares (first list1) list2)
+                 (produto-cartesiano (rest list1) list2))]))
+
+
 ;; DEFINIÇÃO DE DADOS:
 
 (define-struct street (id direction sense blocks block-id-generator entry-block exit-block))
@@ -100,14 +110,14 @@
 
 ;; List[Street] -> List[Intersection]
 (define (create-intersections h-streets v-streets)
-  (let* ([street-pairs (cartesian-product h-streets v-streets)]
+  (let* ([street-pairs (produto-cartesiano h-streets v-streets)]
          [intersections
-          (for ([p street-pairs]
-                [(create-intersection (first p) (second p))]
-                )
-            )
+          (map (lambda (p) (create-intersection (first p) (second p)))
+               street-pairs)
           ]
          )
+     
+   
     intersections
     ))
 
@@ -137,13 +147,15 @@
 (define SIM1 (make-simulator (list STR1 STR2) (list INT1)))
 
 (define (init-simulator)
-  (let* ([h-streets
-          (for ([i (in-range 10)] [(create-street (first DIRECTIONS))]))
+  (let* (
+         [h-streets
+          (map (lambda () ([i (in-range 10)] [(create-street (first DIRECTIONS))]))
           ]
-         [(v-streets
+         [v-streets
            (for ([i (in-range 10)] [(create-street (second DIRECTIONS))]))
-           )]
+           ]
          )
+         
     (make-simulator
      h-streets
      v-streets
