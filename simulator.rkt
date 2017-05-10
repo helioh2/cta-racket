@@ -10,11 +10,11 @@
 (define TURN-RATE 0.1)
 (define BLOCK-LENGTH 5)
 
-(define SENSES (list (cons 0 1) (cons 0 -1) (cons 1 0) (cons -1 0)))
+(define SENSES (list (list 0 1) (list 0 -1) (list 1 0) (list -1 0)))
 (define SENSES_NAMES (list "RIGHT" "LEFT" "DOWN" "UP"))
 
-(define DIRECTIONS (list (cons 0 1) (cons 1 0)))
-(define DIRECTIONS_NAMES (cons "HORIZONTAL" "VERTICAL"))
+(define DIRECTIONS (list (list 0 1) (list 1 0)))
+(define DIRECTIONS_NAMES (list "HORIZONTAL" "VERTICAL"))
 
 (define DIR_HOR 0)
 (define DIR_VER 1)
@@ -45,21 +45,21 @@
 ;; DEFINIÇÃO DE DADOS:
 
 
-(define-struct carro (id block-id total-time in-intersection?) #:transparent)
+(define-struct car (id block-id dir total-time in-intersection? next-block-id) #:transparent)
 ;; Car é (make-car Integer+ Block Integer+ Boolean)
 ;exemples:
-(define CAR1 (make-carro 1 (cons 0 0) 2 #f))
+(define CAR1 (make-car 1 (list 0 0) (list 0 1) 2 #f #f))
 
 
 ;(define-struct block (id lane previous-intersection next-intersection))
 (define-struct block (id lane dir) #:transparent)
 ;; Block é (make-block '(Integer+ . Integer+) Vector Intersection Intersection
 ;examples:
-(define BLOCK1 (make-block (cons 0 0) (vector #f CAR1 #f #f #f) (cons 0 1)))
-(define BLOCK2 (make-block (cons 10 0) (make-vector 5 #f) (cons 1 0)))
+(define BLOCK1 (make-block (list 0 0) (vector #f CAR1 #f #f #f) (list 0 1)))
+(define BLOCK2 (make-block (list 10 0) (make-vector 5 #f) (list 1 0)))
 
 (define (create-block street-id id dir)
-  (make-block (cons street-id id)
+  (make-block (list street-id id)
               (make-vector 5 #f)
               dir
               ))
@@ -71,17 +71,17 @@
 (define (next-intersection block ints)
   (for/first ([int ints]
               #:when (or (equal? (intersection-id int) (block-id block))
-                     (equal? (intersection-id int) (cons
-                                           (cdr (block-id block))
-                                           (- (car (block-id block)) C-STREET-HALF)))))
+                     (equal? (intersection-id int) (list
+                                           (second (block-id block))
+                                           (- (first (block-id block)) C-STREET-HALF)))))
            int)
   )
 
 (define (previous-intersection block intersections)
   (for/first ([int intersections]
-              #:when (or (= (intersection-id) (cons (first (block-id block))
+              #:when (or (= (intersection-id) (list (first (block-id block))
                                                     (sub1 (second (block-id block)))))
-                     (= (intersection-id) (cons
+                     (= (intersection-id) (list
                                            (sub1 (second (block-id block)))
                                            (- (first (block-id block)) C-STREET-HALF)))))
            int)
@@ -91,8 +91,8 @@
 (define-struct street (id dir sense blocks entry-block exit-block) #:transparent)
 ;; Street é (make-street Integer+ Integer[0,1] PairInSENSES List[Block] Function Block Block)
 ;example
-(define STR1 (make-street 0 0 (cons 0 1) (list BLOCK1) BLOCK1 #f))
-(define STR2 (make-street 1 1 (cons 1 0) (list BLOCK2) BLOCK2 #f))
+(define STR1 (make-street 0 0 (list 0 1) (list BLOCK1) BLOCK1 #f))
+(define STR2 (make-street 1 1 (list 1 0) (list BLOCK2) BLOCK2 #f))
 
 
 
@@ -101,18 +101,18 @@
          [calc-sense (lambda (x) (if (= x 0) 0
                                      (if (= (remainder id 2) 0) 1
                                          -1)))]
-         [sense (cons (calc-sense (car dir))
-                       (calc-sense (cdr dir)))]
+         [sense (list (calc-sense (first dir))
+                       (calc-sense (second dir)))]
          [blocks (create-blocks id dir) ]
          )
     (make-street id
                  dir
                  sense
                  blocks
-                 (if (or (= (car sense) 1) (= (cdr sense) 1))
+                 (if (or (= (first sense) 1) (= (second sense) 1))
                      (first blocks)
                      (last blocks))
-                 (if (or (= (car sense) -1) (= (cdr sense) -1))
+                 (if (or (= (first sense) -1) (= (second sense) -1))
                      (first blocks)
                      (last blocks)))
     )
@@ -126,36 +126,36 @@
 (define-struct semaphore (traffic-lights timer) #:transparent)
 ;; Semaphore é (make-semaphore Pair(TrafficLight) Integer+)
 ;example:
-(define SEM1 (make-semaphore (cons RED RED) (cons 0 1)))
+(define SEM1 (make-semaphore (list RED RED) (list 0 1)))
 
 
 (define-struct intersection (id h-street v-street entry-blocks exit-blocks crossing semaphore) #:transparent)
 ;; Intersection é (make-intersection '(Integer+,Integer+) Street Street Pair[Block] Pair[Block] Car|#false Semaphore)
 ;example
-(define INT1 (make-intersection (cons 0 0) STR1 STR2 (cons BLOCK1 #f) (cons BLOCK2 #f) #f SEM1))
+(define INT1 (make-intersection (list 0 0) STR1 STR2 (list BLOCK1 #f) (list BLOCK2 #f) #f SEM1))
 
 
 ;; Street -> Intersection
 (define (create-intersection h-street v-street)
-  (make-intersection (cons (street-id h-street) (- (street-id v-street) (/ COUNT-STREETS 2)))
+  (make-intersection (list (street-id h-street) (- (street-id v-street) (/ COUNT-STREETS 2)))
                      (street-id h-street)
                      (street-id v-street)
-                     (cons (block-id (list-ref (street-blocks h-street)
-                                     (if (equal? (street-sense h-street) (cons 0 1))
+                     (list (block-id (list-ref (street-blocks h-street)
+                                     (if (equal? (street-sense h-street) (list 0 1))
                                          (- (street-id v-street) (/ COUNT-STREETS 2) )
                                          (add1 (- (street-id v-street) (/ COUNT-STREETS 2) )))))                                         
                                      
                            (block-id (list-ref (street-blocks v-street)
-                                     (if (equal? (street-sense v-street) (cons 1 0))
+                                     (if (equal? (street-sense v-street) (list 1 0))
                                          (street-id h-street)
                                          (add1 (street-id h-street)))
                                      )))
-                     (cons (block-id (list-ref (street-blocks h-street)
-                                     (if (equal? (street-sense h-street) (cons 0 1))
+                     (list (block-id (list-ref (street-blocks h-street)
+                                     (if (equal? (street-sense h-street) (list 0 1))
                                          (add1 (- (street-id v-street) (/ COUNT-STREETS 2) ))
                                          (- (street-id v-street) (/ COUNT-STREETS 2) ))))
                            (block-id (list-ref (street-blocks v-street)
-                                     (if (equal? (street-sense v-street) (cons 1 0))
+                                     (if (equal? (street-sense v-street) (list 1 0))
                                          (add1 (street-id h-street))
                                          (street-id h-street)
                                          ))))
@@ -176,9 +176,9 @@
     intersections
     ))
 
-;; Intersection Carro -> Boolean
+;; Intersection car -> Boolean
 (define (intersection-closed int dir)
-  (let* ([index-dir (car dir)]
+  (let* ([index-dir (first dir)]
          [sem (intersection-semaphore int)]
          [tf (list-ref (semaphore-traffic-lights sem)
                                   index-dir)]
@@ -246,20 +246,17 @@ SIMT1
                      (intersection-semaphore int)))
    
 
-;; List[Intersection] -> (List[Intersection], List[Carro])
+;; List[Intersection] -> (List[Intersection], List[car])
 (define (try-move-crossings ints)
   (local [
     (define (try-move-crossings-aux ints ints-acc to-move-car)
-      (cond [(empty? ints) (cons ints-acc to-move-car)]
+      (cond [(empty? ints) (list ints-acc to-move-car)]
             [else
-             (let ([carro (intersection-crossing (first ints))])
-              (if (not (false? carro))
-                  ;(if (can-move-car-out-crossing carro (intersection-exit-blocks))
+             (let ([car (intersection-crossing (first ints))])
+              (if (not (false? car))
                       (try-move-crossings-aux (rest ints)
                                           (cons (remove-car (first ints)) ints-acc)
-                                          (cons carro to-move-car))
-                      ;(cons (first ints) (cons carro not-moved) to-add))
-                      ;(cons (first ints) not-moved to-add))
+                                          (cons car to-move-car))
                       (try-move-crossings-aux (rest ints)
                                           (cons (first ints) ints-acc)
                                           to-move-car)))]))
@@ -275,13 +272,72 @@ SIMT1
                         (vector-ref v (- i 1)))))
   )
                            
-          
 
-;; Block -> (Block, Carros)
-;; !!!
-(define (move-cars block)
-  (let* ([moving-out (last (vector->list (block-lane block)))])
-    (cons (vector-shift (block-lane block)) moving-out)))
+(define (invert-dir dir)
+  (list (remainder (add1 (first dir)) 2)
+        (remainder (add1 (second dir)) 2)))
+
+
+;; Block Intersections -> Integer
+(define (crossing-block-id block)
+  (let ([int (next-intersection block ints)])
+    (if (= (block-dir block) (list 0 1))
+        (second (intersection-exit-blocks int))
+        (first (intersection-exit-blocks int)))))
+
+;; Block Intersections -> Integer
+(define (straight-block-id block)
+  (let ([int (next-intersection block ints)])
+    (if (= (block-dir block) (list 0 1))
+        (first (intersection-exit-blocks int))
+        (second (intersection-exit-blocks int)))))
+
+
+;; Block Car Intersections -> Intersections
+(define (enter-intersection block car ints)
+  (let* ( [current-dir (car-dir car)]
+         [next-dir (if (< (/ (sub1 (random 1 101)) 100) TURN-RATE)
+                       (invert-dir current-dir)
+                       current-dir)]
+         (next-block-id (if (not (equal? next-dir current-dir))
+                            (crossing-block-id block)
+                            (straight-block-id block)))
+         [int (next-intersection block ints)]
+         )
+    (cons 
+     (make-intersection (intersection-id int)
+                     (intersection-h-street int)
+                     (intersection-v-street int)
+                     (intersection-entry-blocks int)
+                     (intersection-exit-blocks int)
+                     (make-car
+                      (car-id car)
+                      (car-block-id car)
+                      next-dir
+                      (car-total-time car)
+                      #t
+                      next-block-id)                      
+                     (intersection-semaphore int))
+     (remove int ints (lambda (i) (= (intersection-id i) (intersection-id int))))
+    )))
+     
+
+;; Car -> Log
+; !!!
+(define (exit-car car) (display "carro saiu"))
+
+
+;; Block -> (Block, cars)
+(define (move-cars block ints)
+  (let* ([moving-out (last (vector->list (block-lane block)))]
+         [next-int (next-intersection block ints)]
+         )
+    (list (vector-shift (block-lane block)) ;;incluir mudança do timer dos carros, assim como log car-move
+          (cond [(and (not (false? moving-out)) (not (false? next-int)))
+                 (enter-intersection moving-out ints)]
+                [(not (false? moving-out))
+                 (begin (exit-car moving-out) ints)]
+                [else ints]))))
 
 
 ;; Block -> (Block, Car|#f)
@@ -290,61 +346,70 @@ SIMT1
          [trying
           (if (and (not (false? next-int))
                    (intersection-closed next-int (block-dir block)))
-              (cons (block-lane block) #f)
-              (move-cars block))])
-  (cons (make-block (block-id block)
-                    (car trying)
+              (list (block-lane block) ints)
+              (move-cars block ints))])
+    
+  (list (make-block (block-id block)
+                    (first trying)
                     (block-dir block)
                   )
-        (cdr trying))))
+        (second trying))))
 
-;; Blocks -> (Blocks, Carros)
+;; Blocks -> (Blocks, cars)
 (define (move-blocks blocks ints)
   (local [
-    (define (move-blocks-aux blocks ints blocks-acc to-move-out)
-      (cond [(empty? blocks) (cons blocks-acc to-move-out)]
+    (define (move-blocks-aux blocks ints blocks-acc)
+      (cond [(empty? blocks) (list blocks-acc ints)]
             [else
              (let ([trying (move-block (first blocks) ints)])
-             (move-blocks-aux (rest blocks) ints
-                              (cons (car trying) blocks-acc)
-                              (if (false? (cdr trying))
-                                  to-move-out
-                                  (cons (cdr trying) to-move-out))))])
-      )]
-  (move-blocks-aux blocks ints empty empty)))
+             (move-blocks-aux (rest blocks)
+                              (second trying) ;ints modificado
+                              (cons (first trying) blocks-acc)))]))
+                              ;(if (false? (second trying))
+                                 ; to-move-out
+                                 ; (cons (second trying) to-move-out))))])
+      ]
+  (move-blocks-aux blocks ints empty)))
 
 
 ;; Street -> Street
 (define (try-move-street street ints)
   (let* ([moving (move-blocks (street-blocks street) ints)]
-         [blocks-moved (car moving)]
-         [cars-out (cdr moving)])
-  (cons (make-street (street-id street)
+         [blocks-moved (first moving)]
+         [new-ints (second moving)])
+  (list (make-street (street-id street)
                (street-dir street)
                (street-sense street)
                blocks-moved
                (street-entry-block street)
                (street-exit-block street))
-    cars-out)))
+    new-ints)))
 
-;; List[Street] -> (List[Street] List[Carro])
+;; List[Street] -> (List[Street] List[car])
 (define (try-move-streets streets ints)
   (local [
-    (define (try-move-streets-aux streets ints str-acc to-move-out)
-      (cond [(empty? streets) (cons str-acc to-move-out)]
+    (define (try-move-streets-aux streets ints str-acc)
+      (cond [(empty? streets) (list str-acc ints)]
             [else
              (let ([moving (try-move-street (first streets) ints)])
-             (try-move-streets-aux (rest streets) ints
-                                   (cons (car moving) str-acc)
-                                   (cons (cdr moving) to-move-out)))])
-      )]
-  (try-move-streets-aux streets ints empty empty)))
+             (try-move-streets-aux (rest streets)
+                                   (second moving)  ;ints modificado
+                                   (cons (first moving) str-acc)))]
+            ))]
+                                   ;(cons (second moving) to-move-out)))])
+      
+  (try-move-streets-aux streets ints empty)))
 
 (define TIMES (list 47 38 5))
 
+;;TrafficLight -> TrafficLight
+(define (next-tf tf)
+  (remainder (add1 tf) 3))
+  
+
 ;;Semaphore -> Semaphore
 (define (tick-semaphore sem)
-  (let ([new-timer (list (sub1 (first (semaphore-timer sem)))
+  (let* ([new-timer (list (sub1 (first (semaphore-timer sem)))
                          (sub1 (second (semaphore-timer sem))))]
         [new-tfs (list (if (< (first new-timer) 0)
                            (next-tf (first (semaphore-traffic-lights sem)))
@@ -363,7 +428,7 @@ SIMT1
       (if (< (second new-timer) 0)
           (list-ref TIMES (second new-tfs))
           (second new-timer))
-      )))
+      ))))
          
      
                
@@ -383,6 +448,20 @@ SIMT1
 (define (tick-intersections ints)
   (map tick-intersection ints))
 
+
+;; Streets Car -> Street
+(define (insert-out-crossing-car streets car)
+  (let* ([street (get-street (car-next-block car) streets)]
+         [block (get-block (car-next-block car) street)]
+         )
+    (
+    
+
+;; Streets Cars -> Streets
+(define (insert-out-crossing-cars streets cars)
+  (map insert-out-crossing-car streets car))
+
+
 ;;; Simulator -> Simulator
 
 ;(define (tick sim) sim)
@@ -390,20 +469,25 @@ SIMT1
 (define (tick sim)
   (let* (
          [ticked-ints (tick-intersections (simulator-intersections sim))]
-         [try-move-cross (try-move-crossings (simulator-intersections sim))]
-         [intersections-moved1 (car try-move-cross)]
-         [to-move-out-crossing (cdr try-move-cross)]
          
-         [try-move-street (try-move-streets (append (simulator-h-streets sim)
-                                                    (simulator-v-streets sim))
-                                            (simulator-intersections sim)
-                                            )]
-         [streets-moved1 (car try-move-street)]
-         [to-move-in-crossing (cdr try-move-street)]
+         [try-move-cross (try-move-crossings ticked-ints)]
+         [intersections-moved1 (first try-move-cross)]
+         [to-move-out-crossing (second try-move-cross)]
+         
+         [try-move-h-street (try-move-streets (simulator-h-streets sim) intersections-moved1)]
+         [h-streets-moved1 (first try-move-h-street)]
+         [intersections2 (second try-move-h-street)]
+
+         [try-move-v-street (try-move-streets (simulator-v-streets sim) intersections2)]
+         [v-streets-moved1 (first try-move-v-street)]
+         [intersections3 (second try-move-v-street)]
          )
   (make-simulator
+   (insert-out-crossing-cars h-streets-moved1 to-move-out-crossing)
+   (insert-out-crossing-cars v-streets-moved1 to-move-out-crossing)
+   intersections3 )
    
-  )))
+  ))
 
 
 ;;; Simulator -> Image
