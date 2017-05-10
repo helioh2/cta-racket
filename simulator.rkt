@@ -459,7 +459,21 @@ SIMT1
 
 ;; Streets Cars -> Streets
 (define (insert-out-crossing-cars streets cars)
-  (map insert-out-crossing-car streets car))
+  (local [
+          (define (traverse-street str c)
+            (
+            
+          
+          (define (insert-out-crossing-cars-aux streets car streets-aux)
+            (cond [(empty? streets) streets-aux]
+                  [else
+                   (insert-out-crossing-cars-aux (rest streets)
+                                                 car
+                                                 (traverse-street (first streets) car))]))
+                                                           
+            
+          ]
+  (map (lambda (c) (insert-out-crossing-cars-aux streets c empty)) cars))) 
 
 
 ;;; Simulator -> Simulator
