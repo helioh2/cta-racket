@@ -58,7 +58,7 @@
     (display "CAR-NEW|" OUT)
     (display (string-append (number->string car-id) "|") OUT)
     (display (string-append (number->string (first (street-dir street))) "|") OUT)
-    (display (if (= (first street-dir) 0)
+    (display (if (= (first (street-dir street)) 0)
                (number->string (street-id street))
                (number->string (- (street-id street) 10))) OUT)
     (linebreak)))
@@ -85,7 +85,7 @@
   (begin
     (display "SEMAPHORE|" OUT)
     (display (string-append (number->string (intersection-h-street int)) "|") OUT)
-    (display (string-append (number->string (intersection-v-street int)) "|") OUT)
+    (display (string-append (number->string (- (intersection-v-street int) 10)) "|") OUT)
     (display (cond [(and (= (first tfs) RED) (= (second tfs) RED) (> (first timer) (second timer)))
                   "0"]
                  [(and (= (first tfs) GREEN) (= (second tfs) RED))
@@ -94,9 +94,9 @@
                   "2"]
                  [(and (= (first tfs) RED) (= (second tfs) RED) (< (first timer) (second timer)))
                   "3"]
-                 [(and (= (first tfs) GREEN) (= (second tfs) RED))
+                 [(and (= (first tfs) RED) (= (second tfs) GREEN))
                   "4"]
-                 [(and (= (first tfs) YELLOW) (= (second tfs) RED))
+                 [(and (= (first tfs) RED) (= (second tfs) YELLOW))
                   "5"]
                  )
            OUT)
@@ -348,14 +348,14 @@ SIMT1
 ;; Block Intersections -> Integer
 (define (crossing-block-id block ints)
   (let ([int (next-intersection block ints)])
-    (if (= (block-dir block) (list 0 1))
+    (if (equal? (block-dir block) (list 0 1))
         (second (intersection-exit-blocks int))
         (first (intersection-exit-blocks int)))))
 
 ;; Block Intersections -> Integer
 (define (straight-block-id block ints)
   (let ([int (next-intersection block ints)])
-    (if (= (block-dir block) (list 0 1))
+    (if (equal? (block-dir block) (list 0 1))
         (first (intersection-exit-blocks int))
         (second (intersection-exit-blocks int)))))
 
@@ -363,14 +363,17 @@ SIMT1
 ;; Block Car Intersections -> Intersections
 (define (enter-intersection block car ints)
   (let* ( [current-dir (car-dir car)]
-         [next-dir (if (< (/ (sub1 (random 1 101)) 100) TURN-RATE)
+          [turn? (< (/ (sub1 (random 1 101)) 100) TURN-RATE)]
+         [next-dir (if turn?
                        (invert-dir current-dir)
                        current-dir)]
-         (next-block-id (if (not (equal? next-dir current-dir))
+         (next-block-id (if turn?
                             (crossing-block-id block ints)
                             (straight-block-id block ints)))
          [int (next-intersection block ints)]
          )
+    (begin
+      (log-move-car (car-id car) turn?)
     (cons 
      (make-intersection (intersection-id int)
                      (intersection-h-street int)
@@ -385,8 +388,8 @@ SIMT1
                       #t
                       next-block-id)                      
                      (intersection-semaphore int))
-     (remove int ints (λ (i) (= (intersection-id i) (intersection-id int))))
-    )))
+     (remove int ints (λ (i1 i2) (equal? (intersection-id i1) (intersection-id i2))))
+    ))))
      
 
 (define (vector-shift v normal-flow?)
@@ -398,7 +401,7 @@ SIMT1
                           [else
                            (let ([item (vector-ref v (- i 1))])
                              (begin
-                               (if (not (false? item)) (log-move-car (car-id item)) #f)
+                               (if (not (false? item)) (log-move-car (car-id item) #f) #f)
                                item))]
                           ))))
                          
@@ -409,7 +412,7 @@ SIMT1
   (let* ([moving-out (last (vector->list (block-lane block)))]
          [next-int (next-intersection block ints)]
          [not-blocked-intersection? (and (not (false? moving-out)) (not (false? next-int))
-                                         (not (intersection-closed next-int)))]
+                                         (not (intersection-closed next-int (block-dir block))))]
          [exiting? (and (not (false? moving-out)) (false? next-int))]
          [normal-flow? (or not-blocked-intersection?
                            (false? moving-out))]
@@ -417,9 +420,9 @@ SIMT1
          )
     (list (vector-shift (block-lane block) normal-flow?)
           (cond [not-blocked-intersection?
-                 (enter-intersection moving-out ints)]
+                 (enter-intersection block moving-out ints)]
                 [exiting?
-                 (begin (log-exit-car moving-out) ints)]
+                 (begin (log-exit-car (car-id moving-out)) ints)]
                 [else ints]))))
 
 
@@ -531,7 +534,7 @@ SIMT1
 
 
 (define (insert-last-lane lane c)
-            (vector-append (vector c) (vector-take-right 4 lane)))   
+            (vector-append (vector c) (vector-take-right lane 4)))   
 
 ;; Streets Cars -> Streets
 (define (insert-out-crossing-cars streets cars)
@@ -539,7 +542,7 @@ SIMT1
           
           (define (traverse-block b c)
             (if (equal? (car-next-block-id c) (block-id b))
-                (begin (log-move-car car-id #f)
+                (begin (log-move-car (car-id c) #f)
                 (make-block
                  (block-id b)
                  (insert-last-lane (block-lane b) c)
@@ -555,7 +558,7 @@ SIMT1
              (street-id str)
              (street-dir str)
              (street-sense str)
-             (traverse-blocks (street-blocks str c))
+             (traverse-blocks (street-blocks str) c)
              (street-entry-block str)
                (street-exit-block str)
             ))
@@ -570,12 +573,11 @@ SIMT1
                   ))
                                            
           (define (insert-out-crossing-cars-aux streets cars)
-            (cond [(empty? cars) empty]
+            (cond [(empty? cars) streets]
                   [else
-                   (cons
-                    (insert-out-crossing-car streets (first car))
-                    (insert-out-crossing-cars-aux streets
-                                                 (rest cars)))]))
+                    (insert-out-crossing-cars-aux
+                     (insert-out-crossing-car streets (first cars))
+                     (rest cars))]))
                                                            
             
           ]
@@ -587,8 +589,9 @@ SIMT1
   (local [
           (define (insert-car-entry-block blocks car-id)
             (cond [(empty? blocks) empty]
-                  [cons
-                   (if (equal? (block-id (first blocks)) (street-entry-block street))
+                  [else
+                   (cons
+                   (if (equal? (block-id (first blocks)) (block-id (street-entry-block street)))
                        (begin
                          (log-new-car car-id street)
                        (make-block
@@ -604,7 +607,7 @@ SIMT1
                         (block-dir (first blocks))
                         (block-sense (first blocks))))
                        (first blocks))
-                   (insert-car-entry-block (rest blocks car-id))]))                                                                                    
+                   (insert-car-entry-block (rest blocks) car-id))]))                                                                                   
           ]
   
   (make-street
@@ -629,7 +632,9 @@ SIMT1
 ;(define (tick sim) sim)
 
 (define (tick sim)
-  (let* (
+  (begin
+    (log-clock)
+    (let* (
          [ticked-ints (tick-intersections (simulator-intersections sim))]
          
          [try-move-cross (try-move-crossings ticked-ints)]
@@ -643,6 +648,7 @@ SIMT1
          [try-move-v-street (try-move-streets (simulator-v-streets sim) intersections2)]
          [v-streets-moved1 (first try-move-v-street)]
          [intersections3 (second try-move-v-street)]
+         
          [insert-car? (= (remainder (simulator-count-iter sim) 10) 0)]
          [v-next-id (+ 10 (simulator-car-id sim))]
 
@@ -660,7 +666,7 @@ SIMT1
    intersections3
    (add1 (simulator-count-iter sim))
    (if insert-car? (+ 20 (simulator-car-id sim)) (simulator-car-id sim))
-  )))
+  ))))
 
 
 ;;; Simulator -> Image
