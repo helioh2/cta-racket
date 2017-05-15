@@ -423,7 +423,7 @@
                    (try-flow-blocked-lane-aux
                     (if (false? (vector-ref v i))
                         (begin 
-                                   (for ([j (in-range (sub1 i) 0 -1)]
+                                   (for ([j (in-range (sub1 i) -1 -1)]
                                          #:when (not (false? (vector-ref v j))))                                         
                                        (log-move-car (car-id (vector-ref v j)) #f))
                         (vector-append (vector #f) (vector-take v i) (vector-drop v (add1 i))))
@@ -449,9 +449,9 @@
                            (false? moving-out))]
                            
          )
-    (list ;(if    blocked-intersection?
+    (list (if    blocked-intersection?
                  (try-flow-blocked-lane (block-lane block))
-                 ;(vector-shift (block-lane block)))
+                 (vector-shift (block-lane block)))
           (cond [not-blocked-intersection?
                  (enter-intersection block moving-out ints)]
                 [exiting?
