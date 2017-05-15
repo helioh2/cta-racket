@@ -79,9 +79,7 @@
 (define (log-clock)
   (display "CLOCK|1\n" OUT))
 
-(define (log-semaphore sem int)
-  (let ([tfs (semaphore-traffic-lights sem)]
-        [timer (semaphore-timer sem)])
+(define (log-semaphore tfs timer int)
   (begin
     (display "SEMAPHORE|" OUT)
     (display (string-append (number->string (intersection-h-street int)) "|") OUT)
@@ -100,7 +98,7 @@
                   "5"]
                  )
            OUT)
-    (linebreak))))
+    (linebreak)))
 
 
                  
@@ -179,11 +177,11 @@
                  sense
                  blocks
                  (if (or (= (first sense) 1) (= (second sense) 1))
-                     (first blocks)
-                     (last blocks))
+                     (block-id (first blocks))
+                     (block-id (last blocks)))
                  (if (or (= (first sense) -1) (= (second sense) -1))
-                     (first blocks)
-                     (last blocks)))
+                     (block-id (first blocks))
+                     (block-id (last blocks))))
     )
     )
 
@@ -293,7 +291,6 @@
 ;teste estrutura
 
 (define SIMT1 (init-simulator))
-SIMT1
 
 
 (require 2htdp/universe)
@@ -373,7 +370,8 @@ SIMT1
          [int (next-intersection block ints)]
          )
     (begin
-      (log-move-car (car-id car) turn?)
+      (log-move-car (car-id car) #f)
+      (if turn? (log-move-car (car-id car) turn?) #f)
     (cons 
      (make-intersection (intersection-id int)
                      (intersection-h-street int)
@@ -392,20 +390,51 @@ SIMT1
     ))))
      
 
-(define (vector-shift v normal-flow?)
+;(define (vector-shift v normal-flow?)
+;    (build-vector 5
+;                  (λ (i)
+;                    (cond [(= i 0) #f]
+;                          [(and (= i 4) (not normal-flow?))
+;                           (vector-ref v i)]
+;                          [else
+;                           (let ([item (vector-ref v (- i 1))])
+;                             (begin
+;                               (if (not (false? item)) (log-move-car (car-id item) #f) #f)
+;                               item))]
+;                          ))))
+                         
+
+(define (vector-shift v)
     (build-vector 5
                   (λ (i)
-                    (cond [(= i 0) #f]
-                          [(and (= i 4) (not normal-flow?))
-                           (vector-ref v i)]
+                    (cond [(= i 0) #f]                          
                           [else
                            (let ([item (vector-ref v (- i 1))])
                              (begin
                                (if (not (false? item)) (log-move-car (car-id item) #f) #f)
                                item))]
                           ))))
-                         
-                           
+
+(define (try-flow-blocked-lane v)
+  (local [
+          (define (try-flow-blocked-lane-aux v i)
+            (cond [(< i 1) v]
+                  [else
+                   (try-flow-blocked-lane-aux
+                    (if (false? (vector-ref v i))
+                        (begin 
+                                   (for ([j (in-range (sub1 i) 0 -1)]
+                                         #:when (not (false? (vector-ref v j))))                                         
+                                       (log-move-car (car-id (vector-ref v j)) #f))
+                        (vector-append (vector #f) (vector-take v i) (vector-drop v (add1 i))))
+                        v)
+                    (if (false? (vector-ref v i))
+                        0
+                        (sub1 i)))]))
+
+          ]
+    (try-flow-blocked-lane-aux v 4)))
+                   
 
 ;; Block -> (Block, cars)
 (define (move-cars block ints)
@@ -413,12 +442,16 @@ SIMT1
          [next-int (next-intersection block ints)]
          [not-blocked-intersection? (and (not (false? moving-out)) (not (false? next-int))
                                          (not (intersection-closed next-int (block-dir block))))]
+         [blocked-intersection? (and (not (false? moving-out)) (not (false? next-int))
+                                         (intersection-closed next-int (block-dir block)))]
          [exiting? (and (not (false? moving-out)) (false? next-int))]
          [normal-flow? (or not-blocked-intersection?
                            (false? moving-out))]
                            
          )
-    (list (vector-shift (block-lane block) normal-flow?)
+    (list ;(if    blocked-intersection?
+                 (try-flow-blocked-lane (block-lane block))
+                 ;(vector-shift (block-lane block)))
           (cond [not-blocked-intersection?
                  (enter-intersection block moving-out ints)]
                 [exiting?
@@ -502,7 +535,8 @@ SIMT1
                  ])
     (begin
       (if (or (< (first new-timer) 0) (< (second new-timer) 0))
-          (log-semaphore sem int) #f)
+          (log-semaphore new-tfs new-timer  int) #f)
+      ;(display sem)
     (make-semaphore
      new-tfs
      (list
@@ -591,7 +625,7 @@ SIMT1
             (cond [(empty? blocks) empty]
                   [else
                    (cons
-                   (if (equal? (block-id (first blocks)) (block-id (street-entry-block street)))
+                   (if (equal? (block-id (first blocks)) (street-entry-block street))
                        (begin
                          (log-new-car car-id street)
                        (make-block
@@ -656,6 +690,9 @@ SIMT1
          [v-streets-moved2 (insert-out-crossing-cars v-streets-moved1 to-move-out-crossing)]
          )
 
+      (begin
+        ;(display (simulator-h-streets sim))
+        ;(display (simulator-v-streets sim))
     (make-simulator
    (if insert-car?
        (insert-cars h-streets-moved2 (simulator-car-id sim) )
@@ -666,7 +703,7 @@ SIMT1
    intersections3
    (add1 (simulator-count-iter sim))
    (if insert-car? (+ 20 (simulator-car-id sim)) (simulator-car-id sim))
-  ))))
+  )))))
 
 
 ;;; Simulator -> Image
