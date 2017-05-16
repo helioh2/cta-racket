@@ -333,12 +333,10 @@
                   [else
                    (let ([car (intersection-crossing (first ints))])
                      (if (not (false? car))
-                         (begin
-                           (log-move-car (car-id car) #f)
-                           (log-info (string-append "Car " (number->string (car-id car)) " leaving crossing"))
+              
                          (try-move-crossings-aux (rest ints)
                                                  (cons (remove-car (first ints)) ints-acc)
-                                                 (cons car to-move-car)))
+                                                 (cons car to-move-car))
                          (try-move-crossings-aux (rest ints)
                                                  (cons (first ints) ints-acc)
                                                  to-move-car)))]))
@@ -373,48 +371,37 @@
           [next-dir (if turn?
                         (invert-dir current-dir)
                         current-dir)]
-          (next-block-id (if turn?
+          [next-block-id (if turn?
                              (crossing-block-id block ints)
-                             (straight-block-id block ints)))
+                             (straight-block-id block ints))]
           [int (next-intersection block ints)]
           )
-    (begin
-      (log-move-car (car-id car) #f)
-      (log-info (string-append "Car " (number->string (car-id car)) "entering crossing."))
-      (if turn? (log-move-car (car-id car) turn?) #f)
-      (if turn? (log-info (string-append "Car " (number->string (car-id car)) "turning.")) #f)
-      (cons 
-       (make-intersection (intersection-id int)
-                          (intersection-h-street int)
-                          (intersection-v-street int)
-                          (intersection-entry-blocks int)
-                          (intersection-exit-blocks int)
-                          (make-car
-                           (car-id car)
-                           (car-block-id car)
-                           next-dir
-                           (car-total-time car)
-                           #t
-                           next-block-id)                      
-                          (intersection-semaphore int))
-       (remove int ints (λ (i1 i2) (equal? (intersection-id i1) (intersection-id i2))))
-       ))))
-     
 
-;(define (vector-shift v normal-flow?)
-;    (build-vector 5
-;                  (λ (i)
-;                    (cond [(= i 0) #f]
-;                          [(and (= i 4) (not normal-flow?))
-;                           (vector-ref v i)]
-;                          [else
-;                           (let ([item (vector-ref v (- i 1))])
-;                             (begin
-;                               (if (not (false? item)) (log-move-car (car-id item) #f) #f)
-;                               item))]
-;                          ))))
-                         
-
+    (if (not (false? (intersection-crossing int)))
+        (list ints #f)
+        (begin
+          (log-move-car (car-id car) #f)
+          (log-info (string-append "Car " (number->string (car-id car)) "entering crossing."))
+          (if turn? (log-move-car (car-id car) turn?) #f)
+          (if turn? (log-info (string-append "Car " (number->string (car-id car)) "turning.")) #f)
+          (list (cons 
+           (make-intersection (intersection-id int)
+                              (intersection-h-street int)
+                              (intersection-v-street int)
+                              (intersection-entry-blocks int)
+                              (intersection-exit-blocks int)
+                              (make-car
+                               (car-id car)
+                               (car-block-id car)
+                               next-dir
+                               (car-total-time car)
+                               #t
+                               next-block-id)                      
+                              (intersection-semaphore int))
+           (remove int ints (λ (i1 i2) (equal? (intersection-id i1) (intersection-id i2))))
+           )
+                #t)))))
+ 
 (define (vector-shift v)
   (build-vector 5
                 (λ (i)
@@ -448,7 +435,7 @@
                    
 
 ;; Block -> (Block, cars)
-(define (move-cars block ints)
+(define (move-cars block ints not-moved-blocks)
   (let* ([moving-out (last (vector->list (block-lane block)))]
          [next-int (next-intersection block ints)]
          [not-blocked-intersection? (and (not (false? moving-out)) (not (false? next-int))
@@ -458,51 +445,84 @@
          [exiting? (and (not (false? moving-out)) (false? next-int))]
          [normal-flow? (or not-blocked-intersection?
                            (false? moving-out))]
-         [int-entered (if not-blocked-intersection? (enter-intersection block moving-out ints) ints)]
-                           
+         [int-entered (if not-blocked-intersection? (enter-intersection block moving-out ints) (list ints #t))]                           
          )
     (list ;(if    blocked-intersection?
-                 (try-flow-blocked-lane (block-lane block) normal-flow?)
+     (if (second int-entered)
+         (try-flow-blocked-lane (block-lane block) normal-flow?)
+         (block-lane block))
                  ;(vector-shift (block-lane block)))
           (cond [not-blocked-intersection?
-                 int-entered]
+                 (first int-entered)]
                 [exiting?
                  (begin (log-exit-car (car-id moving-out)) ints)]
-                [else ints]))))
+                [else ints])
+          (if (second int-entered)
+              (cons block not-moved-blocks)
+              not-moved-blocks
+              ))))
 
 
 ;; Block -> (Block, Car|#f)
-(define (move-block block ints)
-  (let ([trying (move-cars block ints)])
+(define (move-block block ints not-moved-blocks)
+  (let ([trying (move-cars block ints not-moved-blocks)])
     
     (list (make-block (block-id block)
                       (first trying)
                       (block-dir block)
                       (block-sense block)
                       )
-          (second trying))))
+          (second trying)
+          (third trying))))
+
+
+;; Cars Block -> Block
+(define (try-move-int-cars block int-cars)
+  (cond [(empty? int-cars) (list block empty)]
+        [(equal? (car-next-block-id (first int-cars)) (block-id block))
+         (begin
+           (log-move-car (car-id (first int-cars)) #f)
+           (log-info (string-append "Car " (number->string (car-id (first int-cars))) " leaving crossing"))
+           (list
+            (let ([lane (block-lane block)])
+             (make-block
+              (block-id block)
+              (vector-append (vector (first int-cars)) (vector-drop lane 1))
+              (block-dir block)
+              (block-sense block)))
+            (first int-cars))
+            )]
+        [else
+         (try-move-int-cars block (rest int-cars))]))
+          
 
 ;; Blocks -> (Blocks, cars)
-(define (move-blocks blocks ints)
+(define (move-blocks blocks ints int-cars not-moved-blocks)
   (local [
-          (define (move-blocks-aux blocks ints blocks-acc)
-            (cond [(empty? blocks) (list blocks-acc ints)]
+          (define (move-blocks-aux blocks ints blocks-acc int-cars not-moved-blocks)
+            (cond [(empty? blocks) (list blocks-acc ints int-cars not-moved-blocks)]
                   [else
-                   (let ([trying (move-block (first blocks) ints)])
+                   (let* ([trying (move-block (first blocks) ints not-moved-blocks)]
+                          [try-move-int (try-move-int-cars (first trying) int-cars)])
                      (move-blocks-aux (rest blocks)
-                                      (second trying) ;ints modificado
-                                      (cons (first trying) blocks-acc)))]))
-          ;(if (false? (second trying))
-          ; to-move-out
-          ; (cons (second trying) to-move-out))))])
+                                      (second trying) 
+                                      (cons (first try-move-int) blocks-acc)
+                                      (remove (second try-move-int) int-cars
+                                              (λ (i1 i2) (equal?
+                                                          (intersection-id i1)
+                                                          (intersection-id i2))))
+                                      (third trying)
+
+                                      ))]))
+
           ]
-    (move-blocks-aux blocks ints empty)))
+    (move-blocks-aux blocks ints empty int-cars not-moved-blocks)))
 
 (define (block<? b1 b2)
   (< (second (block-id b1)) (second (block-id b2))))
 
 ;; Street -> Street
-(define (try-move-street street ints)
+(define (try-move-street street ints int-cars not-moved-blocks)
   (let* ([moving (move-blocks
                   ((if (or
                        (equal? (street-sense street) '(1 0))
@@ -510,7 +530,7 @@
                        reverse
                        values)
                        (sort (street-blocks street) block<?))
-                  ints)]
+                  ints int-cars not-moved-blocks)]
          [blocks-moved (first moving)]
          [new-ints (second moving)])
     (list (make-street (street-id street)
@@ -519,22 +539,26 @@
                        blocks-moved
                        (street-entry-block street)
                        (street-exit-block street))
-          new-ints)))
+          new-ints
+          (third moving)
+          (fourth moving))))
 
 ;; List[Street] -> (List[Street] List[car])
-(define (try-move-streets streets ints)
+(define (try-move-streets streets ints int-cars)
   (local [
-          (define (try-move-streets-aux streets ints str-acc)
-            (cond [(empty? streets) (list str-acc ints)]
+          (define (try-move-streets-aux streets ints str-acc int-cars not-moved-blocks)
+            (cond [(empty? streets) (list str-acc ints int-cars not-moved-blocks)]
                   [else
-                   (let ([moving (try-move-street (first streets) ints)])
+                   (let ([moving (try-move-street (first streets) ints int-cars not-moved-blocks)])
                      (try-move-streets-aux (rest streets)
                                            (second moving)  ;ints modificado
-                                           (cons (first moving) str-acc)))]
+                                           (cons (first moving) str-acc)
+                                           (third moving)
+                                           (fourth moving)
+                                           ))]
                   ))]
-    ;(cons (second moving) to-move-out)))])
-      
-    (try-move-streets-aux streets ints empty)))
+
+    (try-move-streets-aux streets ints empty int-cars empty)))
 
 (define TIMES (list 47 38 5))
 
@@ -683,6 +707,46 @@
         ))
 
 
+
+(define (move-blocks-not-moved-aux street blocks-not-moved ints)
+  (local [
+          (define (move-not-moved-blocks blocks blocks-acc blocks-not-moved ints)
+            (cond [(empty? blocks) (list blocks-acc ints)]
+                  [(not (false? (member (first blocks) blocks-not-moved)))
+                   (let ([moving (move-block (first blocks) ints empty)])
+                   (move-not-moved-blocks (rest blocks)
+                                              (cons (first moving) blocks-acc)
+                                              blocks-not-moved
+                                              (second moving)))]
+                  [else
+                   (move-not-moved-blocks (rest blocks)
+                                              blocks-acc
+                                              blocks-not-moved
+                                              ints)
+                     
+                   ]))                                                                    
+          ]
+    (let ([done (move-not-moved-blocks (street-blocks street) empty blocks-not-moved ints)])
+    (list (make-street
+     (street-id street)
+     (street-dir street)
+     (street-sense street)
+     (first done)
+     (street-entry-block street)
+     (street-exit-block street))
+          done))))
+    
+(define (move-blocks-not-moved streets blocks-not-moved ints)
+  (cond [(empty? streets) empty]
+        [else
+         (cons
+          (move-blocks-not-moved-aux (first streets) blocks-not-moved ints)
+          (move-blocks-not-moved (rest streets) blocks-not-moved ints))]
+        ))
+
+
+
+
 ;;; Simulator -> Simulator
 
 ;(define (tick sim) sim)
@@ -697,19 +761,33 @@
            [intersections-moved1 (first try-move-cross)]
            [to-move-out-crossing (second try-move-cross)]
          
-           [try-move-h-street (try-move-streets (simulator-h-streets sim) intersections-moved1)]
+           [try-move-h-street (try-move-streets (simulator-h-streets sim) intersections-moved1 to-move-out-crossing)]
            [h-streets-moved1 (first try-move-h-street)]
            [intersections2 (second try-move-h-street)]
+           [to-move-out-crossing2 (third try-move-h-street)]
+           [h-blocks-not-moved (fourth try-move-h-street)]
 
-           [try-move-v-street (try-move-streets (simulator-v-streets sim) intersections2)]
+           [try-move-v-street (try-move-streets (simulator-v-streets sim) intersections2 to-move-out-crossing)]
            [v-streets-moved1 (first try-move-v-street)]
            [intersections3 (second try-move-v-street)]
+           [to-move-out-crossing3 (third try-move-v-street)]
+           [v-blocks-not-moved (fourth try-move-h-street)]
+
+           [h-moved-not-moved (move-blocks-not-moved h-streets-moved1 h-blocks-not-moved intersections3)]
+           [h-streets-moved2 (first h-moved-not-moved)]
+           [intersections4 (second h-moved-not-moved)]
+           
+           [v-moved-not-moved  (move-blocks-not-moved v-streets-moved1 v-blocks-not-moved intersections4)]
+           [v-streets-moved2 (first v-moved-not-moved)]
+           [intersections5 (second v-moved-not-moved)]
          
            [insert-car? (= (remainder (simulator-count-iter sim) 10) 0)]
            [v-next-id (+ 10 (simulator-car-id sim))]
 
-           [h-streets-moved2 (insert-out-crossing-cars h-streets-moved1 to-move-out-crossing)]
-           [v-streets-moved2 (insert-out-crossing-cars v-streets-moved1 to-move-out-crossing)]
+           [h-streets-moved3 (insert-out-crossing-cars h-streets-moved2 to-move-out-crossing3)]
+           [v-streets-moved3 (insert-out-crossing-cars v-streets-moved2 to-move-out-crossing3)]
+
+           
            )
 
       (begin
@@ -717,11 +795,11 @@
         ;(display (simulator-v-streets sim))
         (make-simulator
          (if insert-car?
-             (insert-cars h-streets-moved2 (simulator-car-id sim) )
-             h-streets-moved2 )
+             (insert-cars h-streets-moved3 (simulator-car-id sim) )
+             h-streets-moved3 )
          (if insert-car?
-             (insert-cars v-streets-moved2 v-next-id)
-             v-streets-moved2)
+             (insert-cars v-streets-moved3 v-next-id)
+             v-streets-moved3)
          intersections3
          (add1 (simulator-count-iter sim))
          (if insert-car? (+ 20 (simulator-car-id sim)) (simulator-car-id sim))
