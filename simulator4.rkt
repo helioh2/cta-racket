@@ -31,10 +31,6 @@
 
 ;; FUNCOES AUXILIARES:
 
-
-(define (car-id-generator)
-  (in-range +inf.0))
-
 (define (cria-pares item lista)
   (map (λ (item2) (list item item2)) lista))
 
@@ -107,19 +103,12 @@
     (display msg OUT)
     (linebreak)))
     
-                 
-  
-  
-
-
 ;; DEFINIÇÃO DE DADOS:
-
 
 (define-struct car (id block-id dir total-time in-intersection? next-block-id) #:transparent)
 ;; Car é (make-car Integer+ Block Integer+ Boolean)
 ;exemples:
 (define CAR1 (make-car 1 (list 0 0) (list 0 1) 2 #f #f))
-
 
 ;(define-struct block (id lane previous-intersection next-intersection))
 (define-struct block (id lane dir sense) #:transparent)
@@ -168,7 +157,6 @@
 (define STR2 (make-street 1 1 (list 1 0) (list BLOCK2) BLOCK2 #f))
 
 
-
 (define (create-street id dir)
   (let* (
          [calc-sense (λ (x) (if (= x 0) 0
@@ -192,7 +180,6 @@
   )
 
 ;; Street inicial é (create-street)
-
 
 ;;TrafficLight é um desses: RED, GREEN, YELLOW
 
@@ -222,7 +209,7 @@
                                                (if (equal? (street-sense v-street) (list 1 0))
                                                    (street-id h-street)
                                                    (add1 (street-id h-street)))
-                                               )))
+                                               )))   ;;REFATORAR!!!
                      (list (block-id (list-ref (street-blocks h-street)
                                                (if (equal? (street-sense h-street) (list 0 1))
                                                    (add1 (- (street-id v-street) (/ COUNT-STREETS 2) ))
@@ -231,7 +218,7 @@
                                                (if (equal? (street-sense v-street) (list 1 0))
                                                    (add1 (street-id h-street))
                                                    (street-id h-street)
-                                                   ))))
+                                                   ))))  ;;REFATORAR!!!
                      #f
                      (make-semaphore (list RED RED) (list 47 1))))
 
@@ -289,15 +276,7 @@
        )
       )))
 
-
-
-
-
-
-;teste estrutura
-
 (define SIMT1 (init-simulator))
-
 
 (require 2htdp/universe)
 (require 2htdp/image)
@@ -325,7 +304,7 @@
                      (intersection-semaphore int)))
    
 
-(define (free-next-space car streets)
+(define (free-next-space? car streets)
 
   (local [
           (define (free-next-space-aux car blocks)
@@ -339,7 +318,7 @@
   (cond [(empty? streets) #f]
         [else
          (or (free-next-space-aux car (street-blocks (first streets)))
-             (free-next-space car (rest streets)))])))
+             (free-next-space? car (rest streets)))])))
   
 
 ;; List[Intersection] -> (List[Intersection], List[car])
@@ -355,7 +334,7 @@
                          (try-move-crossings-aux (rest ints)
                                                  (cons (remove-car (first ints)) ints-acc)
                                                  (cons
-                                                   (if (free-next-space car streets)
+                                                   (if (free-next-space? car streets)
                                                        (begin
                                                          (log-move-car (car-id car) #f)
                                                          (log-info (string-append "Car " (number->string (car-id car)) "leaving crossing."))
@@ -365,7 +344,7 @@
                                                           (car-dir car)
                                                           (car-total-time car)
                                                           #f
-                                                          (car-next-block-id car)))
+                                                          (car-next-block-id car)))  ;;REFATORAR!!
                                                        car)   
                                                   to-move-car))
                          (try-move-crossings-aux (rest ints)
@@ -428,17 +407,6 @@
                           (intersection-semaphore int))
        (remove int ints (λ (i1 i2) (equal? (intersection-id i1) (intersection-id i2))))
        ))))
- 
-(define (vector-shift v)
-  (build-vector 5
-                (λ (i)
-                  (cond [(= i 0) #f]                          
-                        [else
-                         (let ([item (vector-ref v (- i 1))])
-                           (begin
-                             (if (not (false? item)) (log-move-car (car-id item) #f) #f)
-                             item))]
-                        ))))
 
 (define (try-flow-blocked-lane v normal-flow?)
   (local [
@@ -595,7 +563,7 @@
                             (first (semaphore-traffic-lights sem)))
                         (if (< (second new-timer) 0)
                             (next-tf (second (semaphore-traffic-lights sem)))
-                            (second (semaphore-traffic-lights sem))))
+                            (second (semaphore-traffic-lights sem)))) ;;REFATORAR COM MAP!!
                   ])
     (begin
       (if (or (< (first new-timer) 0) (< (second new-timer) 0))
@@ -612,9 +580,7 @@
             (second new-timer))
         )))))
          
-     
-               
-
+                   
 ;; Intersection -> Intersection
 (define (tick-intersection int)
   (make-intersection (intersection-id int)
@@ -640,8 +606,6 @@
           
           (define (traverse-block b c)
             (if (equal? (car-next-block-id c) (block-id b))
-                ;(begin (log-move-car (car-id c) #f)
-                       ;(log-info (string-append "Car " (number->string (car-id c)) " leaving crossing"))
                        (make-block
                         (block-id b)
                         (insert-last-lane (block-lane b) c)
@@ -751,8 +715,6 @@
            [insert-car? (= (remainder (simulator-count-iter sim) 10) 0)]
            [v-next-id (+ 10 (simulator-car-id sim))]
 
-           ;[h-streets-moved2 (insert-out-crossing-cars h-streets-moved1 to-move-out-crossing)]
-           ;[v-streets-moved2 (insert-out-crossing-cars v-streets-moved1 to-move-out-crossing)]
            )
 
       (begin
