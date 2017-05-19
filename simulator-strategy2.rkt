@@ -10,6 +10,7 @@
 (define TURN-RATE 0.1)
 (define BLOCK-LENGTH 5)
 (define MAX-ITERS 1000)
+(define CONGESTION-LEVEL (* BLOCK-LENGTH 0.6))
 
 (define SENSES (list (list 0 1) (list 0 -1) (list 1 0) (list -1 0)))
 (define SENSES_NAMES (list "RIGHT" "LEFT" "DOWN" "UP"))
@@ -425,6 +426,22 @@
 (define (stop-cars cars)
   (map stop-car cars))
 
+(define (not-stopped-cars cars)
+  (local [
+    (define (not-stopped-car car)
+      (if (car? car)
+          (make-car (car-id car)
+                    (car-block-id car)
+                    (car-dir car)
+                    (car-total-time car)
+                    #f
+                    (car-next-block-id car)
+                    #f)
+          #f))
+    ]
+    (map not-stopped-car cars)))
+   
+
 (define (try-flow-blocked-lane v normal-flow?)
   (local [
           (define (try-flow-blocked-lane-aux v i)
@@ -432,35 +449,23 @@
                   [else
                    (try-flow-blocked-lane-aux
                     (if (or normal-flow? (false? (vector-ref v i)))
-                                                 
-                        (for ([j (in-range (sub1 i) -1 -1)]                                
-                              #:when (not (false? (vector-ref v j))))
-                          (let ([car (vector-ref v j)])
-                            (begin
-                              (log-move-car (car-id car) #f)
-                              
-                              (vector-append (vector #f)
-                                             (vector-take v j)
-                                             (vector (make-car
-                                                      (car-id car)
-                                                      (car-block-id car)
-                                                      (car-dir car)
-                                                      (car-total-time car)
-                                                      #f
-                                                      (car-next-block-id car)
-                                                      #f))
-                                             (vector-drop v (add1 i))))))
-                          v)
-                    
+                        (begin 
+                          (for ([j (in-range (sub1 i) -1 -1)]
+                                #:when (not (false? (vector-ref v j))))                                         
+                            (log-move-car (car-id (vector-ref v j)) #f))
+                          (vector-append (vector #f) (vector-take v i) (vector-drop v (add1 i))))
+                        v)
                     (if (or normal-flow? (false? (vector-ref v i)))
                         0
                         (sub1 i)))]))
 
           ]
-    (let ([trying (try-flow-blocked-lane-aux v 4)])
+     (let ([trying (try-flow-blocked-lane-aux v 4)])
+     
       (if (equal? trying v)
           (list->vector (stop-cars (vector->list v)))
-          trying))))
+          (list->vector (not-stopped-cars(vector->list v)))))))
+                   
                    
 
 ;; Block -> (Block, cars)
@@ -589,9 +594,38 @@
   (remainder (add1 tf) 3))
   
 
+(define (find-block b-id streets)
+  (local [
+          (define (find-block-id-aux b-id blocks)
+            (findf (λ (b) (equal? (block-id b) b-id)) blocks))
+          ]
+    (let ([found (find-block-id-aux b-id (street-blocks (first streets)))])
+      (if (false? found)
+          (find-block b-id (rest streets))
+          found))))
+  
+
+(define (find-blocks blocks-ids streets)
+  ;(map (λ (b) (find-block b streets)) blocks-ids))
+  (list (find-block (first blocks-ids) streets) (find-block (second blocks-ids) streets)))
+
+
+(define (congested? block)
+  (local [
+          (define (count-stopped lane count)
+            (cond [(empty? lane) count]
+                  [(and (not (false? (first lane))) (car-stopped? (first lane)))
+                   (count-stopped (rest lane) (add1 count))]
+                  [else
+                   (count-stopped (rest lane) count)]))
+          ]
+    (>= (count-stopped (vector->list (block-lane block)) 0) CONGESTION-LEVEL)))
+
 ;;Semaphore -> Semaphore
-(define (tick-semaphore sem int)
-  (let* ([new-timer (list (sub1 (first (semaphore-timer sem)))
+(define (tick-semaphore sem int streets)
+  (let* ([entry-blocks-ids (intersection-entry-blocks int)]
+         [entry-blocks (find-blocks entry-blocks-ids streets)]
+         [new-timer (list (sub1 (first (semaphore-timer sem)))
                           (sub1 (second (semaphore-timer sem))))]
          [new-tfs (list (if (< (first new-timer) 0)
                             (next-tf (first (semaphore-traffic-lights sem)))
@@ -600,36 +634,81 @@
                             (next-tf (second (semaphore-traffic-lights sem)))
                             (second (semaphore-traffic-lights sem)))) ;;REFATORAR COM MAP!!
                   ])
-    (begin
-      (if (or (< (first new-timer) 0) (< (second new-timer) 0))
-          (log-semaphore new-tfs new-timer  int) #f)
-      ;(display sem)
-      (make-semaphore
-       new-tfs
-       (list
-        (if (< (first new-timer) 0)
-            (list-ref TIMES (first new-tfs))
-            (first new-timer))
-        (if (< (second new-timer) 0)
-            (list-ref TIMES (second new-tfs))
-            (second new-timer))
-        )))))
+   
+
+            (cond [(and (congested? (first entry-blocks)) (= RED (first new-tfs)) (>= (first new-timer) (- 47 24)))
+                   (begin
+                     (if (or (< (first new-timer) 0) (< (second new-timer) 0))
+                         (log-semaphore new-tfs new-timer  int) #f)
+                     (make-semaphore
+                    new-tfs
+                    (list
+                     (- 47 30)
+                     (if (< (second new-timer) 0)
+                         (list-ref TIMES (second new-tfs))
+                         (second new-timer))
+                     )))]
+                  [(and (congested? (first entry-blocks)) (= RED (second new-tfs)) (>= (second new-timer) (- 47 24)))
+                   (begin
+                     (if (or (< (first new-timer) 0) (< (second new-timer) 0))
+                         (log-semaphore new-tfs new-timer  int) #f)
+                   (make-semaphore
+                    new-tfs
+                    (list
+                     (if (< (first new-timer) 0)
+                         (list-ref TIMES (first new-tfs))
+                         (first new-timer))
+                     (- 47 30))))]
+
+                  [(and (congested? (first entry-blocks)) (= RED (first new-tfs)) (>= (first new-timer) 25) (<= (first new-timer) 39))
+                   (begin
+                     (log-semaphore (list (first new-tfs) YELLOW) (list 6 (third TIMES))  int) 
+                   (make-semaphore
+                    (list (first new-tfs) YELLOW)
+                    (list
+                     6
+                     (third TIMES)
+                     )))]
+                   [(and (congested? (first entry-blocks)) (= RED (second new-tfs)) (>= (second new-timer) 25) (<= (second new-timer) 39))
+                    (begin
+                     (log-semaphore (list YELLOW (second new-tfs)) (list (third TIMES) 6)  int) 
+                   
+                    (make-semaphore
+                    (list YELLOW (second new-tfs))
+                    (list
+                     (third TIMES)
+                     6
+                     )))]
+                   [else
+                     (begin
+                       (if (or (< (first new-timer) 0) (< (second new-timer) 0))
+                           (log-semaphore new-tfs new-timer  int) #f))
+                     (make-semaphore
+                     new-tfs
+                     (list
+                      (if (< (first new-timer) 0)
+                          (list-ref TIMES (first new-tfs))
+                          (first new-timer))
+                      (if (< (second new-timer) 0)
+                          (list-ref TIMES (second new-tfs))
+                          (second new-timer))
+                      ))])))
          
                    
 ;; Intersection -> Intersection
-(define (tick-intersection int)
+(define (tick-intersection int streets)
   (make-intersection (intersection-id int)
                      (intersection-h-street int)
                      (intersection-v-street int)
                      (intersection-entry-blocks int)
                      (intersection-exit-blocks int)
                      (intersection-crossing int)
-                     (tick-semaphore (intersection-semaphore int) int)))
+                     (tick-semaphore (intersection-semaphore int) int streets)))
   
 
 ;; Intersections -> Intersections
-(define (tick-intersections ints)
-  (map tick-intersection ints))
+(define (tick-intersections ints streets)
+  (map (λ (int) (tick-intersection int streets)) ints))
 
 
 (define (insert-last-lane lane c)
@@ -734,7 +813,7 @@
   (begin
     (log-clock)
     (let* (
-           [ticked-ints (tick-intersections (simulator-intersections sim))]
+           [ticked-ints (tick-intersections (simulator-intersections sim) (append (simulator-h-streets sim) (simulator-v-streets sim)))]
          
            [try-move-cross (try-move-crossings ticked-ints (append (simulator-h-streets sim) (simulator-v-streets sim))) ]
            [intersections-moved1 (first try-move-cross)]
