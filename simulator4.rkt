@@ -105,16 +105,19 @@
     
 ;; DEFINIÇÃO DE DADOS:
 
-(define-struct car (id block-id dir total-time in-intersection? next-block-id) #:transparent)
-;; Car é (make-car Integer+ Block Integer+ Boolean)
-;exemples:
+(define-struct car (id block-id dir total-time
+                       in-intersection?
+                       next-block-id) #:transparent)
+;examples:
 (define CAR1 (make-car 1 (list 0 0) (list 0 1) 2 #f #f))
 
-;(define-struct block (id lane previous-intersection next-intersection))
 (define-struct block (id lane dir sense) #:transparent)
-;; Block é (make-block '(Integer+ . Integer+) Vector Intersection Intersection
 ;examples:
-(define BLOCK1 (make-block (list 0 0) (vector #f CAR1 #f #f #f) (list 0 1) (list 0 1)))
+(define BLOCK1 (make-block (list 0 0)
+                           (vector #f CAR1 #f #f #f)
+                           (list 0 1)
+                           (list 0 1)))
+
 (define BLOCK2 (make-block (list 10 0) (make-vector 5 #f) (list 1 0) (list 1 0)))
 
 (define (create-block street-id id dir sense)
@@ -251,18 +254,20 @@
   
 
 
-(define-struct simulator (h-streets v-streets intersections count-iter car-id) #:transparent)
-;;Simulator é (make-simulator List[Street] List[Intersection] Logger) 
+(define-struct simulator (h-streets v-streets intersections
+                                    count-iter car-id) #:transparent)
 ;example:
 (define SIM1 (make-simulator (list STR1) (list STR2) (list INT1) 0 0))
 
 (define (init-simulator)
   (let* (
          [h-streets
-          (map (λ (i) (create-street i (first DIRECTIONS))) (stream->list (in-range 10)))
+          (map (λ (i) (create-street i (first DIRECTIONS)))
+               (stream->list (in-range 10)))
           ]
          [v-streets
-          (map (λ (i) (create-street i (second DIRECTIONS))) (stream->list (in-range 10 20)))
+          (map (λ (i) (create-street i (second DIRECTIONS)))
+               (stream->list (in-range 10 20)))
           ]
          )
     (begin
@@ -270,16 +275,14 @@
       (make-simulator
        h-streets
        v-streets
-       (create-intersections h-streets v-streets)
-       0
-       0
+       (create-intersections h-streets v-streets) 0 0
        )
       )))
 
 (define SIMT1 (init-simulator))
 
 (require 2htdp/universe)
-(require 2htdp/image)
+
 ;; Big-Bang (ticks):
 
 (define (main sim)
@@ -290,6 +293,8 @@
             ))
 
 
+
+(require 2htdp/image)
 (define (stop? sim)
   (> (simulator-count-iter sim) MAX-ITERS))
 
@@ -319,7 +324,15 @@
         [else
          (or (free-next-space-aux car (street-blocks (first streets)))
              (free-next-space? car (rest streets)))])))
-  
+
+(define (leave-intersection car)
+   (make-car
+    (car-id car)
+    (car-block-id car)
+    (car-dir car)
+    (car-total-time car)
+    #f
+    (car-next-block-id car)))
 
 ;; List[Intersection] -> (List[Intersection], List[car])
 (define (try-move-crossings ints streets)
@@ -329,23 +342,15 @@
                   [else
                    (let ([car (intersection-crossing (first ints))])
                      (if (not (false? car))
-                         
-                        
                          (try-move-crossings-aux (rest ints)
                                                  (cons (remove-car (first ints)) ints-acc)
                                                  (cons
-                                                   (if (free-next-space? car streets)
-                                                       (begin
-                                                         (log-move-car (car-id car) #f)
-                                                         (log-info (string-append "Car " (number->string (car-id car)) "leaving crossing."))
-                                                         (make-car
-                                                          (car-id car)
-                                                          (car-block-id car)
-                                                          (car-dir car)
-                                                          (car-total-time car)
-                                                          #f
-                                                          (car-next-block-id car)))  ;;REFATORAR!!
-                                                       car)   
+                                                  (if (free-next-space? car streets)
+                                                      (begin
+                                                        (log-move-car (car-id car) #f)
+                                                        (log-info (string-append "Car " (number->string (car-id car)) "leaving crossing."))
+                                                        (leave-intersection car))
+                                                      car)   
                                                   to-move-car))
                          (try-move-crossings-aux (rest ints)
                                                  (cons (first ints) ints-acc)
@@ -418,7 +423,8 @@
                         (begin 
                           (for ([j (in-range (sub1 i) -1 -1)]
                                 #:when (not (false? (vector-ref v j))))                                         
-                            (log-move-car (car-id (vector-ref v j)) #f))
+                            (log-move-car (car-id (vector-ref v j)) #f)
+                            )
                           (vector-append (vector #f) (vector-take v i) (vector-drop v (add1 i))))
                         v)
                     (if (or normal-flow? (false? (vector-ref v i)))
@@ -443,13 +449,13 @@
          [int-entered (if not-blocked-intersection? (enter-intersection block moving-out ints) ints)]
                            
          )
-    (list ;(if    blocked-intersection?
-                 (try-flow-blocked-lane (block-lane block) normal-flow?)
-                 ;(vector-shift (block-lane block)))
+    (list (try-flow-blocked-lane (block-lane block) normal-flow?)                
           (cond [not-blocked-intersection?
                  int-entered]
                 [exiting?
-                 (begin (log-exit-car (car-id moving-out)) ints)]
+                 (begin
+                   (log-exit-car (car-id moving-out))
+                   ints)]
                 [else ints]))))
 
 
@@ -690,10 +696,7 @@
         ))
 
 
-;;; Simulator -> Simulator
-
-;(define (tick sim) sim)
-
+;; Simulator -> Simulator
 (define (tick sim)
   (begin
     (log-clock)
@@ -714,12 +717,9 @@
          
            [insert-car? (= (remainder (simulator-count-iter sim) 10) 0)]
            [v-next-id (+ 10 (simulator-car-id sim))]
-
            )
-
+      
       (begin
-        ;(display (simulator-h-streets sim))
-        ;(display (simulator-v-streets sim))
         (make-simulator
          (if insert-car?
              (insert-cars h-streets-moved1 (simulator-car-id sim) )
@@ -735,5 +735,7 @@
 
 ;;; Simulator -> Image
 (define (draw sim) empty-image)
+(define T-START (current-milliseconds))
 (main SIMT1)
+(display (- (current-milliseconds) T-START))
 

@@ -1,0 +1,7 @@
+#lang racket
+
+(require "simulator6.rkt")
+(require rackunit)
+
+
+(check-expect (try-flow-blocked-lane (list 1 2 #f 3 4)) (list (#f 1 2 #f 3)))
