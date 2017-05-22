@@ -136,7 +136,13 @@
 
 (define (next-intersection block ints)
   (if (or (= (first (block-sense block)) -1) (= (second (block-sense block)) -1))
-      (previous-intersection block ints)
+      (for/first ([int ints]
+              #:when (or (equal? (intersection-id int) (list (first (block-id block))
+                                                             (sub1 (second (block-id block)))))
+                         (equal? (intersection-id int) (list
+                                                        (sub1 (second (block-id block)))
+                                                        (- (first (block-id block)) C-STREET-HALF)))))
+    int)
       (for/first ([int ints]
                   #:when (or (equal? (intersection-id int) (block-id block))
                              (equal? (intersection-id int) (list
@@ -145,15 +151,22 @@
         int)
       ))
 
-(define (previous-intersection block intersections)
-  (for/first ([int intersections]
-              #:when (or (equal? (intersection-id int) (list (first (block-id block))
-                                                             (sub1 (second (block-id block)))))
-                         (equal? (intersection-id int) (list
-                                                        (sub1 (second (block-id block)))
-                                                        (- (first (block-id block)) C-STREET-HALF)))))
-    int)
-  )
+(define (previous-intersection block ints)
+  (if (or (= (first (block-sense block)) -1) (= (second (block-sense block)) -1))
+      (for/first ([int ints]
+                  #:when (or (equal? (intersection-id int) (block-id block))
+                             (equal? (intersection-id int) (list
+                                                            (second (block-id block))
+                                                            (- (first (block-id block)) C-STREET-HALF)))))
+        int)
+      (for/first ([int ints]
+                  #:when (or (equal? (intersection-id int) (list (first (block-id block))
+                                                                 (sub1 (second (block-id block)))))
+                             (equal? (intersection-id int) (list
+                                                            (sub1 (second (block-id block)))
+                                                            (- (first (block-id block)) C-STREET-HALF)))))
+        int)
+      ))
   
 
 (define-struct street (id dir sense blocks entry-block exit-block) #:transparent)
@@ -357,7 +370,7 @@
                                                         (log-info (string-append "Car " (number->string (car-id car)) "leaving crossing."))
                                                         (leave-intersection car))
                                                       to-move-car)
-                                                     to-move-car)))
+                                                     (cons car to-move-car)))) ;;tentar inserir depois
                      
                          (try-move-crossings-aux (rest ints)
                                                  (cons (first ints) ints-acc)
@@ -533,10 +546,11 @@
 
 
 ;; Cars Block -> Block
-(define (try-move-int-cars block int-cars)
-  (cond [(empty? int-cars) block]
+(define (try-move-int-cars block int-cars ints)
+  (cond [(empty? int-cars) (list block ints)]
         [(equal? (car-next-block-id (first int-cars)) (block-id block))
          (let ([lane (block-lane block)]
+               [prev-int (previous-intersection block ints)]
                [car (make-car
                      (car-id (first int-cars))
                      (car-block-id (first int-cars))
@@ -545,20 +559,29 @@
                      #f
                      (car-next-block-id (first int-cars))
                      #f)])
-         (begin
-           (if (car-in-intersection? (first int-cars))              
+
+           (if (not (false? (first lane)))
+               (list block ints)  ;;nao mexe
+               
                (begin
-                 (log-move-car (car-id car) #f)
-                 (log-info (string-append "Car " (number->string (car-id car)) " leaving crossing"))
-                 )
-               #f)          
-           (make-block
-            (block-id block)
-            (append (list car) (drop lane 1))
-            (block-dir block)
-            (block-sense block))))]
+                 (if (car-in-intersection? (first int-cars))              
+                     (begin
+                       (log-move-car (car-id car) #f)
+                       (log-info (string-append "Car " (number->string (car-id car)) " leaving crossing"))
+                       )
+                     #f)          
+                 (list
+                  (make-block
+                   (block-id block)
+                   (append (list car) (drop lane 1))
+                   (block-dir block)
+                   (block-sense block))
+
+                  (if (car-in-intersection? (first int-cars))
+                      (cons (remove-car prev-int) (remove prev-int ints))
+                      ints)))))]
         [else
-         (try-move-int-cars block (rest int-cars))]))
+         (try-move-int-cars block (rest int-cars) ints)]))
           
 
 ;; Blocks -> (Blocks, cars)
@@ -567,10 +590,11 @@
           (define (move-blocks-aux blocks ints blocks-acc)
             (cond [(empty? blocks) (list blocks-acc ints)]
                   [else
-                   (let ([trying (move-block (first blocks) ints)])
+                   (let* ([trying (move-block (first blocks) ints)]
+                          [try-move-ints (try-move-int-cars (first trying) int-cars (second trying))])
                      (move-blocks-aux (rest blocks)
-                                      (second trying) 
-                                      (cons (try-move-int-cars (first trying) int-cars) blocks-acc)
+                                      (second try-move-ints) 
+                                      (cons (first try-move-ints) blocks-acc)
                                       ))]))
 
           ]
