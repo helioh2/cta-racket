@@ -12,6 +12,7 @@
 (define TURN-RATE 0.1)
 (define BLOCK-LENGTH 5)
 (define MAX-ITERS 1000)
+(define CONGESTION-LEVEL (* BLOCK-LENGTH 0.6))
 
 (define SENSES (list (list 0 1) (list 0 -1) (list 1 0) (list -1 0)))
 (define SENSES_NAMES (list "RIGHT" "LEFT" "DOWN" "UP"))
@@ -82,13 +83,13 @@
     (display "SEMAPHORE|" OUT)
     (display (string-append (number->string (- (intersection-v-street int) 10) ) "|") OUT)
     (display (string-append (number->string (intersection-h-street int)) "|") OUT)
-    (display (cond [(and (= (first tfs) RED) (= (second tfs) RED) (> (first timer) (second timer)))
+    (display (cond [(and (= (first tfs) RED) (= (second tfs) RED) (< (first timer) (second timer)))
                     "0"]
                    [(and (= (first tfs) GREEN) (= (second tfs) RED))
                     "1"]
                    [(and (= (first tfs) YELLOW) (= (second tfs) RED))
                     "2"]
-                   [(and (= (first tfs) RED) (= (second tfs) RED) (< (first timer) (second timer)))
+                   [(and (= (first tfs) RED) (= (second tfs) RED) (> (first timer) (second timer)))
                     "3"]
                    [(and (= (first tfs) RED) (= (second tfs) GREEN))
                     "4"]
@@ -109,9 +110,9 @@
 
 (define-struct car (id block-id dir total-time
                        in-intersection?
-                       next-block-id) #:transparent)
+                       next-block-id stopped?) #:transparent)
 ;examples:
-(define CAR1 (make-car 1 (list 0 0) (list 0 1) 2 #f #f))
+(define CAR1 (make-car 1 (list 0 0) (list 0 1) 2 #f #f #f))
 
 (define-struct block (id lane dir sense) #:transparent)
 ;examples:
@@ -332,7 +333,8 @@
     (car-dir car)
     (car-total-time car)
     #f
-    (car-next-block-id car)))
+    (car-next-block-id car)
+    #f))
 
 ;; List[Intersection] -> (List[Intersection], List[car])
 (define (try-move-crossings ints streets)
@@ -408,7 +410,8 @@
                            next-dir
                            (car-total-time car)
                            #t
-                           next-block-id)                      
+                           next-block-id
+                           #f)                      
                           (intersection-semaphore int))
        (remove int ints (λ (i1 i2) (equal? (intersection-id i1) (intersection-id i2))))
        ))))
@@ -418,6 +421,37 @@
   (cond [(empty? l) (error 'all-but-last "empty list")]
         [(empty? (rest l)) empty]
         [else (cons (first l) (all-but-last (rest l)))]))
+
+
+
+(define (stop-car car)
+  (if (car? car)
+      (make-car (car-id car)
+                (car-block-id car)
+                (car-dir car)
+                (car-total-time car)
+                #f
+                (car-next-block-id car)
+                #t)
+      #f))
+   
+(define (stop-cars cars)
+  (map stop-car cars))
+
+(define (not-stopped-cars cars)
+  (local [
+    (define (not-stopped-car car)
+      (if (car? car)
+          (make-car (car-id car)
+                    (car-block-id car)
+                    (car-dir car)
+                    (car-total-time car)
+                    #f
+                    (car-next-block-id car)
+                    #f)
+          #f))
+    ]
+    (map not-stopped-car cars)))
 
 (define (try-flow-blocked-lane v normal-flow?)
   (local [
@@ -439,7 +473,6 @@
                         0
                         (sub1 i)))]
                   ))
-
           (define lane (if normal-flow?
                            (append (take v 4) (list #f))
                            v))
@@ -449,8 +482,13 @@
     ;(begin (if (andmap (λ (x) (not (false? x))) v)
           ;                    ;(display v)
              ;  #f)
-    (if (andmap false? lane) lane
-        (try-flow-blocked-lane-aux lane 4))))
+    (if (andmap false? lane)
+        lane
+        (let ([trying (try-flow-blocked-lane-aux lane 4)])
+          (if (equal? trying lane)
+              (stop-cars trying)
+              (not-stopped-cars trying)
+              )))))
                    
 
 ;; Block -> (Block, cars)
@@ -500,7 +538,8 @@
                      (car-dir (first int-cars))
                      (car-total-time (first int-cars))
                      #f
-                     (car-next-block-id (first int-cars)))])
+                     (car-next-block-id (first int-cars))
+                     #f)])
          (begin
            (if (car-in-intersection? (first int-cars))              
                (begin
@@ -577,48 +616,127 @@
 (define (next-tf tf)
   (remainder (add1 tf) 3))
   
+(define (find-block b-id streets)
+  (local [
+          (define (find-block-id-aux b-id blocks)
+            (findf (λ (b) (equal? (block-id b) b-id)) blocks))
+          ]
+    (let ([found (find-block-id-aux b-id (street-blocks (first streets)))])
+      (if (false? found)
+          (find-block b-id (rest streets))
+          found))))
+  
+
+(define (find-blocks blocks-ids streets)
+  ;(map (λ (b) (find-block b streets)) blocks-ids))
+  (list (find-block (first blocks-ids) streets) (find-block (second blocks-ids) streets)))
+
+
+(define (congested? block)
+  (local [
+          (define (count-stopped lane count)
+            (cond [(empty? lane) count]
+                  [(and (not (false? (first lane))) (car-stopped? (first lane)))
+                   (count-stopped (rest lane) (add1 count))]
+                  [else
+                   (count-stopped (rest lane) count)]))
+          ]
+    (>= (count-stopped (block-lane block) 0) CONGESTION-LEVEL)))
 
 ;;Semaphore -> Semaphore
-(define (tick-semaphore sem int)
-  (let* ([new-timer (list (sub1 (first (semaphore-timer sem)))
+(define (tick-semaphore sem int streets)
+  (let* ([entry-blocks-ids (intersection-entry-blocks int)]
+         [entry-blocks (find-blocks entry-blocks-ids streets)]
+         [new-timer0 (list (sub1 (first (semaphore-timer sem)))
                           (sub1 (second (semaphore-timer sem))))]
-         [new-tfs (list (if (< (first new-timer) 0)
+         [new-tfs (list (if (< (first new-timer0) 0)
                             (next-tf (first (semaphore-traffic-lights sem)))
                             (first (semaphore-traffic-lights sem)))
-                        (if (< (second new-timer) 0)
+                        (if (< (second new-timer0) 0)
                             (next-tf (second (semaphore-traffic-lights sem)))
-                            (second (semaphore-traffic-lights sem)))) ;;REFATORAR COM MAP!!
-                  ])
-    (begin
-      (if (or (< (first new-timer) 0) (< (second new-timer) 0))
-          (log-semaphore new-tfs new-timer  int) #f)
-      ;(display sem)
-      (make-semaphore
-       new-tfs
-       (list
-        (if (< (first new-timer) 0)
-            (list-ref TIMES (first new-tfs))
-            (first new-timer))
-        (if (< (second new-timer) 0)
-            (list-ref TIMES (second new-tfs))
-            (second new-timer))
-        )))))
+                            (second (semaphore-traffic-lights sem))))] ;;REFATORAR COM MAP!!
+         [new-timer (list (if (< (first new-timer0) 0)
+                              (list-ref TIMES (first new-tfs))
+                              (first new-timer0))
+                          (if (< (second new-timer0) 0)
+                              (list-ref TIMES (second new-tfs))
+                              (second new-timer0)))])
+   
+
+            (cond
+              [(and (congested? (first entry-blocks)) (= RED (first new-tfs))
+                        (>= (first new-timer) (- 47 24))
+                        (>= (second new-timer) 16))
+                   
+                     (let ([new-timer1 (list
+                                        (- 47 30)
+                                        (- (second new-timer) (- (first new-timer) (- 47 30))))])
+                       (begin
+                         (if (or (< (first new-timer0) 0) (< (second new-timer0) 0))
+                             (log-semaphore new-tfs new-timer1 int) #f)
+                         (make-semaphore new-tfs new-timer1)
+                         )
+                     )]
+
+              [(and (congested? (second entry-blocks)) (= RED (second new-tfs))
+                    (>= (second new-timer) (- 47 24))
+                    (>= (first new-timer) 16))
+               (let ([new-timer1 (list (- (first new-timer) (- (second new-timer) (- 47 30)))
+                                       (- 47 30))])
+                 (begin
+                   (if (or (< (first new-timer0) 0) (< (second new-timer0) 0))
+                       (log-semaphore new-tfs new-timer1 int) #f)
+                   (make-semaphore new-tfs new-timer1)
+                   )
+                 )]
+
+              [(and (congested? (first entry-blocks)) (= RED (first new-tfs))
+                    (<= (first new-timer) (- 47 25))
+                    (>= (first new-timer) (- 47 39)))
+               (begin
+                 (log-semaphore (list (first new-tfs) YELLOW) (list 6 (third TIMES))  int) 
+                 (make-semaphore
+                  (list (first new-tfs) YELLOW)
+                  (list
+                   6
+                   (third TIMES)
+                   )))]
+              [(and (congested? (second entry-blocks)) (= RED (second new-tfs))
+                    (<= (second new-timer) (- 47 25))
+                    (>= (second new-timer) (- 47 39)))
+               (begin
+                 (log-semaphore (list YELLOW (second new-tfs)) (list (third TIMES) 6)  int) 
+                   
+                 (make-semaphore
+                  (list YELLOW (second new-tfs))
+                  (list
+                   (third TIMES)
+                   6
+                   )))]
+              [else
+               (begin
+                 (if (or (< (first new-timer0) 0) (< (second new-timer0) 0))
+                     (log-semaphore new-tfs new-timer  int) #f))
+               (make-semaphore
+                new-tfs
+                new-timer
+                )])))
          
                    
 ;; Intersection -> Intersection
-(define (tick-intersection int)
+(define (tick-intersection int streets)
   (make-intersection (intersection-id int)
                      (intersection-h-street int)
                      (intersection-v-street int)
                      (intersection-entry-blocks int)
                      (intersection-exit-blocks int)
                      (intersection-crossing int)
-                     (tick-semaphore (intersection-semaphore int) int)))
+                     (tick-semaphore (intersection-semaphore int) int streets)))
   
 
 ;; Intersections -> Intersections
-(define (tick-intersections ints)
-  (map tick-intersection ints))
+(define (tick-intersections ints streets)
+  (map (λ (int) (tick-intersection int streets)) ints))
 
 
 (define (insert-last-lane lane c)
@@ -694,6 +812,7 @@
                                                                                  (block-dir (first blocks))
                                                                                  0
                                                                                  #f
+                                                                                 #f
                                                                                  #f))
                                                               (block-dir (first blocks))
                                                               (block-sense (first blocks))))
@@ -703,7 +822,8 @@
                                                  
                                                  (if block-full?
                                                      (begin (log-info (string-append "Car " (number->string car-id) " added to buffer"))
-                                                     (list (street-id street) car-id)) car-not-added)))]))             
+                                                     (list (street-id street) car-id))
+                                                     car-not-added)))]))             
           ]
     (insert-car-entry-block-aux blocks car-id street empty #f)))
     
@@ -775,7 +895,7 @@
   (begin
     (log-clock)
     (let* (
-           [ticked-ints (tick-intersections (simulator-intersections sim))]
+           [ticked-ints (tick-intersections (simulator-intersections sim) (simulator-streets sim))]
          
            [try-move-cross (try-move-crossings ticked-ints  (simulator-streets sim)) ]
            [intersections-moved1 (first try-move-cross)]

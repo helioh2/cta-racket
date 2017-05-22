@@ -80,8 +80,8 @@
 (define (log-semaphore tfs timer int)
   (begin
     (display "SEMAPHORE|" OUT)
-    (display (string-append (number->string (- (intersection-v-street int) 10) ) "|") OUT)
     (display (string-append (number->string (intersection-h-street int)) "|") OUT)
+    (display (string-append (number->string (- (intersection-v-street int) 10)) "|") OUT)
     (display (cond [(and (= (first tfs) RED) (= (second tfs) RED) (> (first timer) (second timer)))
                     "0"]
                    [(and (= (first tfs) GREEN) (= (second tfs) RED))
