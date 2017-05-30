@@ -5,6 +5,7 @@
 
 (provide (all-defined-out))
 
+
 ;; CONSTANTES:
 
 (define COUNT-STREETS 20)
@@ -27,8 +28,9 @@
 (define YELLOW 2)
 
 (define SEP "|")
-(define LOGNAME "simulator.txt")
+(define LOGNAME "simulation-racket-cenario1.txt")
 (define OUT (open-output-file LOGNAME #:exists 'truncate))
+
 
 ;; FUNCOES AUXILIARES:
 
@@ -294,6 +296,7 @@
             (on-tick tick)
             (to-draw draw)
             (stop-when stop?)
+            (close-on-stop #t)
             ))
 
 (require 2htdp/image)
@@ -353,7 +356,7 @@
                                                      (cons                                                  
                                                       (begin
                                                         (log-move-car (car-id car) #f)
-                                                        (log-info (string-append "Car " (number->string (car-id car)) "leaving crossing."))
+                                                        ;(log-info (string-append "Car " (number->string (car-id car)) "leaving crossing."))
                                                         (leave-intersection car))
                                                       to-move-car)
                                                      (cons car to-move-car)))) ;;tentar inserir depois
@@ -396,9 +399,9 @@
           )
     (begin
       (log-move-car (car-id car) #f)
-      (log-info (string-append "Car " (number->string (car-id car)) "entering crossing."))
+      ;(log-info (string-append "Car " (number->string (car-id car)) "entering crossing."))
       (if turn? (log-move-car (car-id car) turn?) #f)
-      (if turn? (log-info (string-append "Car " (number->string (car-id car)) "turning.")) #f)
+      ;(if turn? (log-info (string-append "Car " (number->string (car-id car)) "turning.")) #f)
       (cons 
        (make-intersection (intersection-id int)
                           (intersection-h-street int)
@@ -466,7 +469,8 @@
     (begin
       (if exiting? (begin (log-move-car (car-id moving-out) #f)
                           (log-exit-car (car-id moving-out))
-                          (log-info (string-append "Car " (number->string (car-id moving-out)) " exiting"))) #f)
+                          ;(log-info (string-append "Car " (number->string (car-id moving-out)) " exiting"))
+                          ) #f)
     (list (try-flow-blocked-lane (block-lane block) normal-flow?)                
           (cond [not-blocked-intersection?
                  int-entered]
@@ -505,7 +509,7 @@
                  (if (car-in-intersection? (first int-cars))              
                      (begin
                        (log-move-car (car-id car) #f)
-                       (log-info (string-append "Car " (number->string (car-id car)) " leaving crossing"))
+                       ;(log-info (string-append "Car " (number->string (car-id car)) " leaving crossing"))
                        )
                      #f)          
                  (list

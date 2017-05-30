@@ -28,7 +28,7 @@
 (define YELLOW 2)
 
 (define SEP "|")
-(define LOGNAME "simulator.txt")
+(define LOGNAME "simulation-racket-cenario2.txt")
 (define OUT (open-output-file LOGNAME #:exists 'truncate))
 
 
